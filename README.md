@@ -1,4 +1,4 @@
-#blehh's windowserver
+# blehh's windowserver
 
 a universe planet search tool for waste of space i think?
 go download autohotkey v2.0 1st https://www.autohotkey.com/
