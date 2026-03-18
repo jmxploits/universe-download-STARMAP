@@ -1,148 +1,35 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-; ================================================================
-;  Universe Planet Search Engine -- AutoHotkey v2
-;  Place universe.json and planet.ico next to this script.
-;  Type buttons cycle: (blank)=Any  [+]=Must Have  [-]=Must Not
-; ================================================================
-
 global TempPS    := A_Temp "\ups_query.ps1"
 global TempOut   := A_Temp "\ups_results.txt"
+global IconPath  := A_ScriptDir "\planet.ico"
 
-; ================================================================
-;  GITHUB URLS  --  raw GitHub links for all hosted files
-; ================================================================
-global UNIVERSE_URL := "https://raw.githubusercontent.com/jmxploits/universe-download-STARMAP/main/universe.json"
-global ICON_URL     := "https://raw.githubusercontent.com/jmxploits/universe-download-STARMAP/main/planet.ico"
-global SCRIPT_URL   := "https://raw.githubusercontent.com/jmxploits/universe-download-STARMAP/refs/heads/main/windowserver.ahk"
-global VERSION_URL  := "https://raw.githubusercontent.com/jmxploits/universe-download-STARMAP/refs/heads/main/version.txt"
 
-; Cached file paths in %TEMP%
-global CachedJson   := A_Temp "\ups_universe.json"
-global CachedIcon   := A_Temp "\ups_planet.ico"
-global CachedVer    := A_Temp "\ups_version.txt"
+global UNIVERSE_URL := "https://raw.githubusercontent.com/jmxploits/universe-download-STARMAP/refs/heads/main/universe.json"
 
-; ================================================================
-;  VERSION CHECK + UPDATE
-;  Skipped entirely if all three files exist next to the script
-;  (local dev override - place universe.json, planet.ico and
-;   PlanetSearch.ahk in the same folder to bypass auto-update)
-; ================================================================
-_localOverride := FileExist(A_ScriptDir "\universe.json")
-               && FileExist(A_ScriptDir "\planet.ico")
-
-if !_localOverride {
-    ; Fetch remote version string (tiny, fast)
-    _remoteVer := ""
-    try {
-        _verTmp := A_Temp "\ups_ver_tmp.txt"
-        Download(VERSION_URL, _verTmp)
-        _remoteVer := Trim(FileRead(_verTmp), " `t`r`n")
-        FileDelete(_verTmp)
-    } catch {
-        ; No internet - will fall through to cached files silently
-    }
-
-    _localVer := ""
-    if FileExist(CachedVer)
-        _localVer := Trim(FileRead(CachedVer), " `t`r`n")
-
-    _needUpdate := (_remoteVer != "" && _remoteVer != _localVer)
-    _firstRun   := !FileExist(CachedJson)
-
-    if (_firstRun && _remoteVer = "") {
-        ; No cache and no internet - fatal
-        MsgBox("universe.json not found and GitHub is unreachable.`n`nCheck your internet connection.", "Data Missing", 16)
-        ExitApp()
-    }
-
-    if (_needUpdate || _firstRun) {
-        ; Show themed progress window
-        _udlg := Gui("+AlwaysOnTop -Caption +ToolWindow", "")
-        _udlg.BackColor := "1A0020"
-        _udlg.SetFont("s9 cFFBB77", "Segoe UI")
-        _udlgLbl := _udlg.Add("Text", "x16 y14 w310", "")
-        _udlg.Show("w342 h44")
-
-        _updateFailed := false
-        try {
-            ; ── 1. universe.json ─────────────────────────────
-            _udlgLbl.Text := _firstRun
-                ? "Downloading universe data..."
-                : "Updating universe data  (v" . _localVer . " -> v" . _remoteVer . ")..."
-            Download(UNIVERSE_URL, CachedJson)
-
-            ; ── 2. planet.ico ────────────────────────────────
-            _udlgLbl.Text := "Downloading icon..."
-            Download(ICON_URL, CachedIcon)
-
-            ; ── 3. PlanetSearch.ahk (self-update) ────────────
-            _udlgLbl.Text := "Downloading script update..."
-            _newScript := A_Temp "\ups_new_script.ahk"
-            Download(SCRIPT_URL, _newScript)
-
-            ; Save new version
-            if FileExist(CachedVer)
-                FileDelete(CachedVer)
-            FileAppend(_remoteVer, CachedVer)
-
-            ; ── 4. Apply self-update via batch helper ─────────
-            ; Write a batch that waits for this process to exit,
-            ; copies the new script over, then relaunches it
-            _bat := A_Temp "\ups_updater.bat"
-            _batContent := "@echo off`r`n"
-            _batContent .= ":wait`r`n"
-            _batContent .= "tasklist /fi `"pid eq " . ProcessExist() . "`" | find `"" . ProcessExist() . "`" >nul 2>&1`r`n"
-            _batContent .= "if not errorlevel 1 ( timeout /t 1 /nobreak >nul & goto wait )`r`n"
-            _batContent .= "copy /y `"" . _newScript . "`" `"" . A_ScriptFullPath . "`" >nul`r`n"
-            _batContent .= "start `"`" `"" . A_ScriptFullPath . "`"`r`n"
-            if FileExist(_bat)
-                FileDelete(_bat)
-            FileAppend(_batContent, _bat, "UTF-8-RAW")
-
-            _udlg.Destroy()
-            MsgBox("Update complete  (v" . _localVer . " -> v" . _remoteVer . ").`nThe app will restart to apply the update.", "Updated", 64)
-            Run('cmd.exe /c "' . _bat . '"',, "Hide")
-            ExitApp()
-
-        } catch Error as _ue {
-            _updateFailed := true
-            _udlg.Destroy()
-            if _firstRun {
-                MsgBox("Download failed:`n" . _ue.Message, "Download Error", 16)
-                ExitApp()
-            }
-            ; Has old cache - warn but continue
-            MsgBox("Update failed (v" . _remoteVer . "). Using cached data.`n`n" . _ue.Message, "Update Warning", 48)
-        }
-
-        if !_updateFailed
-            _udlg.Destroy()
-    }
-}
-
-; ── Resolve icon path (local -> cached) ──────────────────────
-global IconPath := A_ScriptDir "\planet.ico"
-if !FileExist(IconPath) {
-    IconPath := CachedIcon
-    if !FileExist(IconPath)
-        IconPath := ""   ; no icon - non-fatal
-}
-
-; ── Resolve JSON path (local -> cached) ──────────────────────
 global JsonPath := A_ScriptDir "\universe.json"
-if !FileExist(JsonPath)
-    JsonPath := CachedJson
-
 if !FileExist(JsonPath) {
-    MsgBox("universe.json could not be found or downloaded.", "Data Missing", 16)
-    ExitApp()
+    JsonPath := A_Temp "\universe.json"
+    if !FileExist(JsonPath) {
+        _dlg := Gui("+AlwaysOnTop -Caption +ToolWindow", "")
+        _dlg.BackColor := "1A0020"
+        _dlg.SetFont("s9 cFFBB77", "Segoe UI")
+        _dlg.Add("Text", "x16 y14 w260", "Downloading universe.json...")
+        _dlg.Show("w292 h44")
+        try {
+            Download(UNIVERSE_URL, JsonPath)
+        } catch _e {
+            _dlg.Destroy()
+            MsgBox("Download failed:`n" . _e.Message . "`n`nCheck UNIVERSE_URL in the script or place universe.json next to it.", "Download Error", 16)
+            ExitApp()
+        }
+        _dlg.Destroy()
+    }
 }
 
 global ResList   := ["Iron","Copper","Coal","Uranium","Diamond","Jade","Titanium","Beryllium","Aluminum","Gold","Lead"]
 
-; BlackHole and AsteroidField are stored as Type (not Star SubType) in the JSON
 global StarNames := ["Red","Orange","Yellow","Blue","Neutron","BlackHole","AsteroidField"]
 global SubNames  := ["Barren","Desert","EarthLike","Exotic","Forest","Gas","Ocean","RobotDepot","RobotFactory","Terra","Tundra"]
 
@@ -156,7 +43,6 @@ for _n in StarNames
 for _n in SubNames
     SubState[_n] := 0
 
-; ── Colours ──────────────────────────────────────────────────────
 global C_BG    := "1A0020"
 global C_INPUT := "35003A"
 global C_DARK  := "0E000F"
@@ -167,21 +53,15 @@ global C_SEP   := "880038"
 if FileExist(IconPath)
     TraySetIcon(IconPath)
 
-
-
-; ================================================================
-;  BUILD GUI  (window inner width = 756, margin = 12 each side)
-; ================================================================
 global G := Gui("+Resize +MinSize780x600", "Universe Planet Search")
 G.BackColor := C_BG
 G.SetFont("s8 c" . C_FG, "Segoe UI")
 G.OnEvent("Close", GuiClose)
 G.OnEvent("Size",  GuiResize)
 
-WIN_W  := 780   ; total window width
-INNER  := WIN_W - 24  ; 756 usable
+WIN_W  := 780
+INNER  := WIN_W - 24
 
-; ── Row 1: text inputs ──────────────────────────────────────────
 G.SetFont("s7 Bold c" . C_DIM, "Segoe UI")
 G.Add("Text", "x12 y10 w200", "PLANET NAME")
 G.Add("Text", "x222 y10 w200", "RANDOM MATERIAL")
@@ -190,13 +70,11 @@ global EditName := G.Add("Edit", "x12 y23 w200 h22 Background" . C_INPUT)
 global EditMat  := G.Add("Edit", "x222 y23 w460 h22 Background" . C_INPUT)
 G.Add("Button", "x692 y23 w76 h22", "Clear All").OnEvent("Click", DoClearAll)
 G.Add("Text", "x12 y52 w" . INNER . " h1 Background" . C_SEP)
-
-; ── Row 2: Planet Subtype toggle buttons ────────────────────────
 G.SetFont("s7 Bold c" . C_DIM, "Segoe UI")
 G.Add("Text", "x12 y57", "PLANET TYPE")
 G.SetFont("s8 c" . C_FG, "Segoe UI")
 
-bw := 120   ; button width (6 per row fits 720px + 12 margin)
+bw := 120
 bh := 22
 col := 0
 by  := 70
@@ -214,7 +92,6 @@ subEndY := by + bh + 8
 G.Add("Text", "x12 y" . subEndY . " w" . INNER . " h1 Background" . C_SEP)
 subEndY += 5
 
-; ── Row 3: Star Type toggle buttons ─────────────────────────────
 G.SetFont("s7 Bold c" . C_DIM, "Segoe UI")
 G.Add("Text", "x12 y" . subEndY, "STAR TYPE")
 G.SetFont("s8 c" . C_FG, "Segoe UI")
@@ -237,7 +114,6 @@ starEndY := starBy + bh + 8
 G.Add("Text", "x12 y" . starEndY . " w" . INNER . " h1 Background" . C_SEP)
 starEndY += 5
 
-; ── Row 4: Temperature + Atmosphere ─────────────────────────────
 G.SetFont("s7 Bold c" . C_DIM, "Segoe UI")
 G.Add("Text", "x12 y" . starEndY, "TEMPERATURE")
 G.Add("Text", "x440 y" . starEndY, "ATMOSPHERE")
@@ -258,22 +134,17 @@ tempEndY := tempY + 14 + 20 + 8
 G.Add("Text", "x12 y" . tempEndY . " w" . INNER . " h1 Background" . C_SEP)
 tempEndY += 5
 
-; ── Row 5: Resources ─────────────────────────────────────────────
-; 2 columns, each 378px wide
-; Per row: Label(85) | StatusDD(110) | >=Min(lbl+slider 80) | -Max(lbl+slider 80)
 G.SetFont("s7 Bold c" . C_DIM, "Segoe UI")
 G.Add("Text", "x12 y" . tempEndY, "RESOURCES  ( Any / Must Have >= min - max / Must Not )")
 G.SetFont("s8 c" . C_FG, "Segoe UI")
 
-; ResDD  = status DDL control ref (Any/Must Have/Must Not)
-; ResMinVal / ResMaxVal = plain integer Maps updated by sliders
-global ResDD    := Map()
-global ResSMin  := Map()   ; slider control refs for min
-global RowData   := Map()   ; row# -> parsed data map
-global GInfo     := 0        ; info panel Gui reference
-global ResSMax  := Map()   ; slider control refs for max
-global ResTMin  := Map()   ; text label refs for min
-global ResTMax  := Map()   ; text label refs for max
+global ResDD := Map()
+global ResSMin := Map() 
+global RowData := Map() 
+global GInfo := 0    
+global ResSMax := Map() 
+global ResTMin := Map() 
+global ResTMax := Map() 
 
 RES_COLS  := 2
 RES_COL_W := 378
@@ -306,7 +177,6 @@ for _res in ResList {
     _sMin := G.Add("Slider", "x" . xSMin . " y" . ySld . " w68 h18 Range1-7 AltSubmit TickInterval1 NoTicks", 1)
     ResSMin[_res] := _sMin
     ResTMin[_res] := _tMin
-    ; capture _res by value for the closure
     _sMin.OnEvent("Change", MakeResSlider(_res, "min"))
 
     G.SetFont("s7 c" . C_DIM, "Segoe UI")
@@ -330,7 +200,6 @@ resEndY := resY0 + row * 30 + 30 + 6
 G.Add("Text", "x12 y" . resEndY . " w" . INNER . " h1 Background" . C_SEP)
 resEndY += 5
 
-; ── Search row ──────────────────────────────────────────────────
 G.Add("Button", "x12 y" . resEndY . " w140 h26 Default", "[ Search ]").OnEvent("Click", DoSearch)
 G.SetFont("s7 c" . C_DIM, "Segoe UI")
 global TxtStatus := G.Add("Text", "x160 y" . (resEndY + 5) . " w596", "Ready")
@@ -343,7 +212,6 @@ global LV := G.Add("ListView",
 LV.OnEvent("DoubleClick", LVDblClick)
 LV.OnEvent("Click",       LVClick)
 
-; ── Bottom bar ──────────────────────────────────────────────────
 botY := lvY + 220 + 6
 G.Add("Text",   "x12 y" . botY . " w" . INNER . " h1 Background" . C_SEP)
 G.Add("Button", "x12 y" . (botY + 4) . " w200 h24", "[ Copy Coordinates ]").OnEvent("Click", DoCopyCoords)
@@ -362,9 +230,6 @@ if FileExist(IconPath) {
 
 Persistent
 
-; ================================================================
-;  INFO PANEL (separate window, docked to the right of main)
-; ================================================================
 GInfo := Gui("+AlwaysOnTop -MinimizeBox -MaximizeBox +ToolWindow", "Planet Info")
 GInfo.BackColor := C_BG
 GInfo.SetFont("s8 c" . C_FG, "Segoe UI")
@@ -372,10 +237,8 @@ GInfo.OnEvent("Close", (*) => GInfo.Hide())
 
 INFO_W := 240
 
-; Placeholder text shown when nothing selected
 global InfoPlaceholder := GInfo.Add("Text", "x12 y12 w216 r1 Center c" . C_DIM, "Choose a planet 1st!")
 
-; Info fields - hidden until a planet is selected
 global InfoTitle   := GInfo.Add("Text", "x12 y12 w216 r1 +Wrap cFFBB77 +Border +Hidden", "")
 GInfo.Add("Text", "x12 y44 w216 h1 Background" . C_SEP)
 
@@ -438,9 +301,6 @@ if FileExist(IconPath) {
     SendMessage(0x80, 1, _hIco2, GInfo.Hwnd)
 }
 
-; ================================================================
-;  FACTORY FUNCTIONS
-; ================================================================
 MakeSubToggle(_n) {
     local _captured := _n
     return (ctrl, *) => DoToggleSub(_captured)
@@ -450,9 +310,6 @@ MakeStarToggle(_n) {
     return (ctrl, *) => DoToggleStar(_captured)
 }
 
-; ================================================================
-;  RESOURCE SLIDER FACTORY + HANDLER
-; ================================================================
 MakeResSlider(_res, _which) {
     local _r := _res
     local _w := _which
@@ -475,9 +332,6 @@ ResSliderChange(_res, _which) {
     ResTMax[_res].Text := "-"  . _mx
 }
 
-; ================================================================
-;  TOGGLE HANDLERS
-; ================================================================
 DoToggleSub(_name) {
     SubState[_name] := Mod(SubState[_name] + 1, 3)
     local _s := SubState[_name]
@@ -501,9 +355,6 @@ DoToggleStar(_name) {
         StarBtns[_name].Text := "- " . _lbl
 }
 
-; ================================================================
-;  GUI EVENTS
-; ================================================================
 GuiClose(*) {
     ExitApp()
 }
@@ -518,9 +369,6 @@ GuiResize(GuiObj, MinMax, W, H) {
     LV.Move(, , _newW, _newH)
 }
 
-; ================================================================
-;  TEMPERATURE
-; ================================================================
 DoTempChange(*) {
     local _mn := SldMin.Value
     local _mx := SldMax.Value
@@ -532,9 +380,6 @@ DoTempChange(*) {
     TxtMax.Text := "Max:   " . _mx
 }
 
-; ================================================================
-;  CLEAR ALL
-; ================================================================
 DoClearAll(*) {
     EditName.Value := ""
     EditMat.Value  := ""
@@ -565,9 +410,6 @@ DoClearAll(*) {
     ShowInfoPlaceholder()
 }
 
-; ================================================================
-;  SEARCH
-; ================================================================
 DoSearch(*) {
     TxtStatus.Text := "Searching..."
     TxtCopy.Text   := ""
@@ -608,9 +450,6 @@ DoSearch(*) {
     local tMin := SldMin.Value
     local tMax := SldMax.Value
 
-    ; Resource filter PS lines
-    ; Read status via .Value (1=Any, 2=Must Have, 3=Must Not) - avoids .Text unreliability
-    ; Read abundance via slider .Value - always a clean integer 1-7
     local ResLines := ""
     for _res, _dd in ResDD {
         local _v    := _dd.Value   ; 1=Any  2=Must Have  3=Must Not
@@ -633,13 +472,11 @@ DoSearch(*) {
         }
     }
 
-    ; ── Build PowerShell script ──────────────────────────────────
     local PS := ""
     PS .= "$data = Get-Content '" . JsonPath . "' -Raw -Encoding UTF8 | ConvertFrom-Json`n"
     PS .= "$out  = [System.Collections.Generic.List[string]]::new()`n"
 
-    ; Build star map: first two coords -> star identifier
-    ; Stars use SubType (Red/Blue/etc), BlackHole and AsteroidField use their Type directly
+
     PS .= "$starMap = @{}`n"
     PS .= "$data.PSObject.Properties | ForEach-Object {`n"
     PS .= "    $t = $_.Value.Type`n"
@@ -708,7 +545,7 @@ DoSearch(*) {
     PS .= "[System.IO.File]::WriteAllLines('" . TempOut . "', $out, [System.Text.UTF8Encoding]::new($false))`n"
 
     try FileDelete(TempPS)
-    FileAppend(PS, TempPS, "UTF-8-RAW")
+    FileAppend(PS, TempPS, "UTF-8")
     RunWait('powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' . TempPS . '"', , "Hide")
 
     LV.Delete()
@@ -772,9 +609,6 @@ DoSearch(*) {
         TxtStatus.Text := count . " planets found"
 }
 
-; ================================================================
-;  COPY COORDINATES
-; ================================================================
 DoCopyCoords(*) {
     local _r := LV.GetNext(0, "Focused")
     if (!_r) {
@@ -805,9 +639,6 @@ LVDblClick(ctrl, _r) {
     TxtCopy.Text := "Copied: " . _c
 }
 
-; ================================================================
-;  INFO PANEL FUNCTIONS
-; ================================================================
 ShowInfoPlaceholder() {
     InfoPlaceholder.Visible := true
     InfoTitle.Visible   := false
@@ -842,9 +673,6 @@ ShowInfoPanel(_d) {
     }
 }
 
-; ================================================================
-;  UTILITY
-; ================================================================
 JoinArray(_arr, _sep) {
     local _out := ""
     local _i   := 0
